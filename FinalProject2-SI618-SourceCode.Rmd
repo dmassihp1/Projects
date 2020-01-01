@@ -1,0 +1,222 @@
+---
+title: "FinalProject2-SI618-SourceCode"
+author: "Dorsa Massihpour"
+date: "December 8, 2019"
+output: html_document
+---
+
+
+```{r setup, include=FALSE, echo = FALSE}
+
+library(readxl)
+library(ggplot2)
+library(dplyr)
+library(magrittr)
+library(tidyverse)
+
+# Read in data and get rid of all rows with at least one NA vlue in a column
+#data = read_excel("test.xlsx")
+data = read_excel("train.xlsx")
+#nrow(data)
+
+
+#data = na.omit(data)
+#nrow(data)
+
+data = data %>% drop_na(c('amenities', 'cancellation_policy', 'log_price', 'accommodates', 'bathrooms', 'host_response_rate', 'number_of_reviews', 'review_scores_rating', 'bedrooms', 'beds'))
+#nrow(data)
+```
+
+
+```{r, echo = FALSE, message = FALSE}
+## Preprocessing
+
+
+# Create numerical columns from the original columns 'amenities' and 'cancellation_policy'
+
+# First clean up 'amenities' column by removing unnecessary string
+data$amenities <- lapply(data$amenities, gsub, pattern=',\"translation missing: en.hosting_amenity_50\"}', replacement='')
+
+# Create num_amenities column
+library(stringr)
+num_amenities_list=c()
+for (i in 1:nrow(data))
+{
+  if (data$amenities[i] == "{}")
+  {
+    curr_amenities = 0
+  }
+  else
+  {
+    curr_amenities = str_count(data$amenities[i], ',') + 1
+  }
+  num_amenities_list = c(num_amenities_list, curr_amenities)
+}
+data$num_amenities = num_amenities_list
+
+# Create canc_policy_num column (numbers 1-6 representing values of "flexible", "long_term", moderate", "strict", "super_strict_30", and "super_strict_60" in that order)
+data$canc_policy_num= as.numeric(as.factor(data$cancellation_policy))
+```
+
+
+
+```{r, fig.width = 10, echo = FALSE}
+## Analysis 1: Differences in Airbnb rentals by city
+
+# a.) Average characteristics by city for all numerical variables (excluding longitude and latitude)
+
+# Subset list of numerical variables
+numeric_vars <- c('log_price', 'accommodates', 'bathrooms', 'host_response_rate', 'number_of_reviews', 'review_scores_rating', 'bedrooms', 'beds', 'num_amenities', 'canc_policy_num')
+numeric_df <- data[numeric_vars]
+
+# Get average values for numerical variables by city
+averages_table = aggregate(numeric_df, by = list(data$city), FUN = mean, na.rm=TRUE)
+#averages_table
+library(formattable)
+print("Mean values of numerical values by location:")
+averages_table
+
+#Visualize how many rentals we have for each city in our dataset
+library(ggplot2)
+ggplot(data = data, aes(x = city, col=city, fill = city)) + geom_bar(stat="count") + ylab("Number of Rentals") + xlab("City") + ggtitle("Number of Airbnb Rentals by City")
+
+# b.) Scatterplots of price versus rating
+ggplot(data = data, aes(x=review_scores_rating, y = log_price, col = city, fill = city)) + geom_point(size=1, shape=20) + xlab("Average Rating") + ylab("Log Price") + facet_grid(.~city) + ggtitle("Scatterplots of Log Price vs Average Rating for Each City")
+
+```
+
+
+
+
+```{r, echo = FALSE, warning=FALSE, message = FALSE, fig.width = 10, fig.height = 13}
+## Analysis 2: Predicting Price of an Airbnb Rental 
+
+# Use subset of all numerical variables in our dataset ('numeric_df')
+# Also need a matrix to input into feature selection function
+numeric_df_mat = as.matrix(numeric_df)
+
+# Find the correlations between each of these variables and the target variable, log_price
+scaled_numeric_df = scale(numeric_df)
+print("Correlations of numerical variables with 'log_price':")
+cor(scaled_numeric_df[,-1], scaled_numeric_df[,1])
+
+
+# Create boxplots/scatterplots to view these correlations
+library("lazyeval")
+library(gridExtra)
+library(grid)
+
+# accomodates - discrete numerical
+
+a <- ggplot(data = numeric_df, aes(x=accommodates, y = log_price, group = accommodates, col = accommodates, fill = accommodates)) + geom_boxplot(alpha =.7) + xlab("Number of People Accommodated") + ylab("Log Price") + ggtitle("Boxplots of Log Price and People Accommodated")
+
+# bathrooms - discrete numerical - delete- not significant
+b <- ggplot(data = numeric_df, aes(x=bathrooms, y = log_price, group = bathrooms, fill = bathrooms, col = bathrooms)) + geom_boxplot(alpha =.7) + xlab("Number of Bathrooms") + ylab("Log Price") + ggtitle("Boxplots of Log Price and the Number of Bathrooms")
+
+# host_response_rate - continuous numerical 
+c <- ggplot(data = numeric_df, aes(x=host_response_rate, y = log_price)) + geom_point(size=1, shape=20) + xlab("Host Response Rate") + ylab("Log Price") + ggtitle("Scatterplot of Log Price vs Host Response Rate")
+
+# number_of_reviews - continuous numerical
+d <- ggplot(data = numeric_df, aes(x=number_of_reviews, y = log_price)) + geom_point(size=1, shape=20) + xlab("Number of Reviews") + ylab("Log Price") + ggtitle("Scatterplot of Log Price vs Number of Reviews")
+
+# review_scores_rating 
+e <- ggplot(data = numeric_df, aes(x=review_scores_rating, y = log_price)) + geom_point(size=1, shape=20) + xlab("Rating") + ylab("Log Price") + ggtitle("Scatterplot of Log Price and Rating")
+
+# bedrooms - discrete numerical
+f <- ggplot(data = numeric_df, aes(x=bedrooms, y = log_price, group = bedrooms, fill = bedrooms, col = bedrooms)) + geom_boxplot(alpha =.7) + xlab("Number of Bedrooms") + ylab("Log Price") + ggtitle("Boxplots of Log Price and Number of Bedrooms") + scale_x_continuous(breaks=c(1,3,7,10))
+
+# beds - discrete numerical
+g <- ggplot(data = numeric_df, aes(x=beds, y = log_price, group = beds, col = beds, fill = beds)) + geom_boxplot(alpha = .7) + xlab("Number of Beds") + ylab("Log Price") + ggtitle("Boxplot of Log Price and Number of Beds")
+
+# num_amenities - continuous numerical
+h <- ggplot(data = numeric_df, aes(x=num_amenities, y = log_price)) + geom_point(size=1, shape=20) + xlab("Number of Amenities") + ylab("Log Price") + ggtitle("Scatterplot of Log Price vs Number of Amenities")
+
+# canc_policy_numeric - discrete numerical
+i  <- ggplot(data = numeric_df, legend = FALSE, aes(x=factor(canc_policy_num), y = log_price, group = as.factor(canc_policy_num), col = as.factor(canc_policy_num), fill = as.factor(canc_policy_num), legend = FALSE)) + geom_boxplot(legend = FALSE, alpha =.7) + xlab("Cancellation policy type") + ylab("Log Price") + ggtitle("Boxplots of Log Price and Cancellation Policy Type") + scale_x_discrete(name = "Cancellation Policy", labels = c('strict', 'moderate', 'flexible', 'super strict', 'strictest')) + scale_fill_discrete(name = "Cancellation Policy", labels = c('strict', 'moderate', 'flexible', 'super strict', 'strictest')) + scale_colour_discrete(name = "Cancellation Policy", labels = c('strict', 'moderate', 'flexible', 'super strict', 'strictest'))
+
+grid.arrange(a, b, c, d, e , f, g, h, i, ncol=2)
+```
+
+
+```{r, echo = FALSE, warning=FALSE, message = FALSE, fig.width = 5, fig.height = 3}
+# Conduct feature selection using random forest method
+library(mlbench)
+library(caret)
+# define the control using a linear regression
+control <- rfeControl(functions=lmFuncs, method="repeatedcv", repeats = 10, verbose = FALSE)
+# run the recursive feature elimintation (RFE) algorithm
+results <- rfe(numeric_df_mat[, 2:10], numeric_df_mat[, 1], rfeControl=control)
+# summarize the results
+print("Results of feature selection:")
+print(results)
+# list the chosen features
+print("Chosen features in order of most importance:")
+print(predictors(results))
+#plot the results
+print("Performance profile of models with a different number of variables:")
+plot(results, type=c("g", "o"), main = "# of Variables (added in order chosen by rfe()")
+
+# Create linear regression with top 5 variables
+top_7_vars = c('host_response_rate', 'accommodates', 'bedrooms', 'beds', 'canc_policy_num', 'bathrooms', 'num_amenities', 'log_price')
+top_7_vars_df = numeric_df[top_7_vars]
+lin_model = lm(log_price ~. , data = top_7_vars_df)
+print("Summary of linear model:")
+summary(lin_model)
+
+# Calculate MSE of model; closer to 0 is better as it indicates less prediction error
+print("Linear model's mean squared error:")
+mean(lin_model$residuals^2)
+```
+
+
+
+```{r, fig.width = 4, fig.height = 6, echo = FALSE, message = FALSE}
+## Analysis 3: Principal Component Analysis and Exploratory Factor Analysis on Numerical Variables
+
+# PCA
+library(ggplot2)
+data_PCA = prcomp(numeric_df, scale = TRUE, center = TRUE, retx = TRUE)
+library(grid)
+
+# Screeplots:
+par(mfrow = c(1, 1))
+screeplot(data_PCA, type = "lines", main = "Screeplot")
+print("      Principle Component Number      ")
+
+```
+
+```{r, fig.width = 6, fig.height = 6, echo = FALSE, message = FALSE}
+par(mfrow = c(1, 1))
+# Biplot:
+biplot(data_PCA, xlabs = rep(".", nrow(numeric_df)),  xlim = c(-.05, .04), cex = c(.6, .6), main = "Biplot")
+```
+
+```{r, echo = FALSE, message = FALSE, results='hide'}
+# EFA using promax
+numeric_df_fac = factanal(numeric_df_mat, factors = 2, rotation = "promax", scores = "regression") # gives p-value of 0
+print(numeric_df_fac)
+numeric_df_fac3 = factanal(numeric_df_mat, factors = 3, rotation = "promax") # gives p-value of 0
+numeric_df_fac3
+numeric_df_fac4 = factanal(numeric_df_mat, factors = 4, rotation = "promax", scores = "regression") # gives p-value of 0
+print(numeric_df_fac4)
+numeric_df_fac5 = factanal(numeric_df_mat, factors = 5, rotation = "promax") # gives p-value of 0
+numeric_df_fac5
+```
+
+```{r, echo = FALSE, message = FALSE, results='hide'}
+# EFA using varimax
+numeric_df_fac2 = factanal(numeric_df_mat, factors = 2, rotation = "varimax", scores = "regression") # gives p-value of 0
+numeric_df_fac2
+numeric_df_fac3 = factanal(numeric_df_mat, factors = 3, rotation = "varimax") # gives p-value of 0
+numeric_df_fac3
+numeric_df_fac4 = factanal(numeric_df_mat, factors = 4, rotation = "varimax") # gives p-value of 0
+numeric_df_fac4
+numeric_df_fac5 = factanal(numeric_df_mat, factors = 5, rotation = "varimax") # gives p-value of 0
+numeric_df_fac5
+
+# ^ p-value corresponds to null hypothesis of perfect fit of model with k-factors to observations; loading values tell which variables load heavily on a given factor, and can decide on name 
+
+
+```
+
+
